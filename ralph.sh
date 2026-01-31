@@ -82,6 +82,26 @@ fi
 
 echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
 
+# Validate required tools are available
+if ! command -v jq &>/dev/null; then
+  echo "Error: jq is required but not installed."
+  exit 1
+fi
+
+if [[ "$TOOL" == "amp" ]] && ! command -v amp &>/dev/null; then
+  echo "Error: amp is required but not installed."
+  exit 1
+fi
+
+if [[ "$TOOL" == "claude" ]] && ! command -v claude &>/dev/null; then
+  echo "Error: claude is required but not installed."
+  exit 1
+fi
+
+# Track consecutive errors
+ERROR_COUNT=0
+MAX_CONSECUTIVE_ERRORS=3
+
 for i in $(seq 1 $MAX_ITERATIONS); do
   echo ""
   echo "==============================================================="
@@ -97,31 +117,60 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   fi
 
   # Run the selected tool with the ralph prompt
+  TOOL_EXIT_CODE=0
   if [[ "$TOOL" == "amp" ]]; then
     if [ -n "$HINTS" ]; then
       # Prepend hints to prompt for amp
-      OUTPUT=$( (echo "$HINTS"; echo ""; cat "$SCRIPT_DIR/prompt.md") | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
+      OUTPUT=$( (echo "$HINTS"; echo ""; cat "$SCRIPT_DIR/prompt.md") | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || TOOL_EXIT_CODE=$?
     else
-      OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
+      OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || TOOL_EXIT_CODE=$?
     fi
   else
     # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
     if [ -n "$HINTS" ]; then
       # Prepend hints to CLAUDE.md for this iteration
-      OUTPUT=$( (echo "$HINTS"; echo ""; echo "---"; echo ""; cat "$SCRIPT_DIR/CLAUDE.md") | claude --dangerously-skip-permissions --print 2>&1 | tee /dev/stderr) || true
+      OUTPUT=$( (echo "$HINTS"; echo ""; echo "---"; echo ""; cat "$SCRIPT_DIR/CLAUDE.md") | claude --dangerously-skip-permissions --print 2>&1 | tee /dev/stderr) || TOOL_EXIT_CODE=$?
     else
-      OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+      OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || TOOL_EXIT_CODE=$?
     fi
   fi
-  
+
+  # Check for tool errors
+  if [ $TOOL_EXIT_CODE -ne 0 ]; then
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+    echo "⚠️  Warning: $TOOL exited with code $TOOL_EXIT_CODE (error $ERROR_COUNT of $MAX_CONSECUTIVE_ERRORS)"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Iteration $i: $TOOL error (exit code $TOOL_EXIT_CODE)" >> "$PROGRESS_FILE"
+
+    if [ $ERROR_COUNT -ge $MAX_CONSECUTIVE_ERRORS ]; then
+      echo "❌ Error: $MAX_CONSECUTIVE_ERRORS consecutive tool failures. Stopping."
+      echo "$(date '+%Y-%m-%d %H:%M:%S') - STOPPED: $MAX_CONSECUTIVE_ERRORS consecutive failures" >> "$PROGRESS_FILE"
+      exit 1
+    fi
+  elif [ -z "$OUTPUT" ] || [ ${#OUTPUT} -lt 50 ]; then
+    # Tool succeeded but output suspiciously short
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+    echo "⚠️  Warning: $TOOL returned minimal output (error $ERROR_COUNT of $MAX_CONSECUTIVE_ERRORS)"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Iteration $i: minimal output warning" >> "$PROGRESS_FILE"
+
+    if [ $ERROR_COUNT -ge $MAX_CONSECUTIVE_ERRORS ]; then
+      echo "❌ Error: $MAX_CONSECUTIVE_ERRORS consecutive minimal outputs. Stopping."
+      echo "$(date '+%Y-%m-%d %H:%M:%S') - STOPPED: $MAX_CONSECUTIVE_ERRORS minimal outputs" >> "$PROGRESS_FILE"
+      exit 1
+    fi
+  else
+    # Success - reset error count
+    ERROR_COUNT=0
+  fi
+
   # Check for completion signal
   if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
     echo ""
-    echo "Ralph completed all tasks!"
+    echo "✅ Ralph completed all tasks!"
     echo "Completed at iteration $i of $MAX_ITERATIONS"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - COMPLETED at iteration $i" >> "$PROGRESS_FILE"
     exit 0
   fi
-  
+
   echo "Iteration $i complete. Continuing..."
   sleep 2
 done
