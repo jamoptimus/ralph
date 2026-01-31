@@ -73,15 +73,18 @@ fi
 if [ -f "$PRD_FILE" ]; then
   CURRENT_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || echo "")
   if [ -n "$CURRENT_BRANCH" ]; then
-    echo "$CURRENT_BRANCH" > "$LAST_BRANCH_FILE"
+    if ! echo "$CURRENT_BRANCH" > "$LAST_BRANCH_FILE"; then
+      echo "Warning: Failed to write branch tracking file"
+    fi
   fi
 fi
 
 # Initialize progress file if it doesn't exist
 if [ ! -f "$PROGRESS_FILE" ]; then
-  echo "# Ralph Progress Log" > "$PROGRESS_FILE"
-  echo "Started: $(date)" >> "$PROGRESS_FILE"
-  echo "---" >> "$PROGRESS_FILE"
+  if ! { echo "# Ralph Progress Log" && echo "Started: $(date)" && echo "---"; } > "$PROGRESS_FILE"; then
+    echo "Error: Failed to initialize progress file"
+    exit 1
+  fi
 fi
 
 echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
@@ -144,12 +147,12 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   fi
 
   # Check for tool errors
-  if [ $TOOL_EXIT_CODE -ne 0 ]; then
+  if [ "$TOOL_EXIT_CODE" -ne 0 ]; then
     ERROR_COUNT=$((ERROR_COUNT + 1))
     echo "⚠️  Warning: $TOOL exited with code $TOOL_EXIT_CODE (error $ERROR_COUNT of $MAX_CONSECUTIVE_ERRORS)"
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Iteration $i: $TOOL error (exit code $TOOL_EXIT_CODE)" >> "$PROGRESS_FILE"
 
-    if [ $ERROR_COUNT -ge $MAX_CONSECUTIVE_ERRORS ]; then
+    if [ "$ERROR_COUNT" -ge "$MAX_CONSECUTIVE_ERRORS" ]; then
       echo "❌ Error: $MAX_CONSECUTIVE_ERRORS consecutive tool failures. Stopping."
       echo "$(date '+%Y-%m-%d %H:%M:%S') - STOPPED: $MAX_CONSECUTIVE_ERRORS consecutive failures" >> "$PROGRESS_FILE"
       exit 1
