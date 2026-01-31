@@ -38,6 +38,7 @@ PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
 ARCHIVE_DIR="$SCRIPT_DIR/archive"
 LAST_BRANCH_FILE="$SCRIPT_DIR/.last-branch"
+HINTS_FILE="$SCRIPT_DIR/.ralph-hints.txt"
 
 # Archive previous run if branch changed
 if [ -f "$PRD_FILE" ] && [ -f "$LAST_BRANCH_FILE" ]; then
@@ -87,12 +88,30 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   echo "  Ralph Iteration $i of $MAX_ITERATIONS ($TOOL)"
   echo "==============================================================="
 
+  # Check for user hints file and prepend to prompt if present
+  HINTS=""
+  if [ -f "$HINTS_FILE" ]; then
+    HINTS=$(cat "$HINTS_FILE")
+    rm -f "$HINTS_FILE"  # Clean up after reading
+    echo "📌 Applying user hints to this iteration"
+  fi
+
   # Run the selected tool with the ralph prompt
   if [[ "$TOOL" == "amp" ]]; then
-    OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
+    if [ -n "$HINTS" ]; then
+      # Prepend hints to prompt for amp
+      OUTPUT=$( (echo "$HINTS"; echo ""; cat "$SCRIPT_DIR/prompt.md") | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
+    else
+      OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
+    fi
   else
     # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
-    OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+    if [ -n "$HINTS" ]; then
+      # Prepend hints to CLAUDE.md for this iteration
+      OUTPUT=$( (echo "$HINTS"; echo ""; echo "---"; echo ""; cat "$SCRIPT_DIR/CLAUDE.md") | claude --dangerously-skip-permissions --print 2>&1 | tee /dev/stderr) || true
+    else
+      OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+    fi
   fi
   
   # Check for completion signal
