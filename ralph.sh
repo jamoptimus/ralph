@@ -163,7 +163,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "⚠️  Warning: $TOOL returned minimal output (error $ERROR_COUNT of $MAX_CONSECUTIVE_ERRORS)"
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Iteration $i: minimal output warning" >> "$PROGRESS_FILE"
 
-    if [ $ERROR_COUNT -ge $MAX_CONSECUTIVE_ERRORS ]; then
+    if [ "$ERROR_COUNT" -ge "$MAX_CONSECUTIVE_ERRORS" ]; then
       echo "❌ Error: $MAX_CONSECUTIVE_ERRORS consecutive minimal outputs. Stopping."
       echo "$(date '+%Y-%m-%d %H:%M:%S') - STOPPED: $MAX_CONSECUTIVE_ERRORS minimal outputs" >> "$PROGRESS_FILE"
       exit 1
